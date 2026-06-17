@@ -412,6 +412,47 @@ CreateThread(function()
             end
         end
 
+        -- NUI badge: közelről (5m) apró címke a marker felett
+        if not editorOpen then
+            local badgeDist = Config.Marker.BadgeDistance or 5.0
+            local badges = {}
+            for _, data in pairs(allMarkers) do
+                if localAccess(data) then
+                    local coords = data.coords
+                    local dx = playerCoords.x - coords.x
+                    local dy = playerCoords.y - coords.y
+                    local dz = playerCoords.z - coords.z
+                    local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+                    if dist <= badgeDist then
+                        local zOff = (data.zOffset or mZOff) + 0.45
+                        local onScreen, sx, sy = World3dToScreen2d(coords.x, coords.y, coords.z + zOff)
+                        if onScreen then
+                            local alpha = 1.0
+                            if dist > badgeDist * 0.6 then
+                                alpha = 1.0 - ((dist - badgeDist * 0.6) / (badgeDist * 0.4))
+                            end
+                            badges[#badges + 1] = {
+                                id = data.id,
+                                x = sx,
+                                y = sy,
+                                alpha = alpha,
+                                title = data.title or '',
+                                keyText = 'E',
+                                near = dist <= (data.interactDistance or interactDist),
+                                showLabel = true,
+                                showInteract = dist <= (data.interactDistance or interactDist),
+                                theme = data.theme or 'sky',
+                                icon = data.icon or 'wrench',
+                                subtitle = '',
+                                scale = 1
+                            }
+                        end
+                    end
+                end
+            end
+            SendNUIMessage({ action = 'setMarkers', markers = badges })
+        end
+
         if hasAny then
             Wait(0)
         else

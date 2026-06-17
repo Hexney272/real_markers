@@ -54,46 +54,50 @@ Config.Marker = {
     NearPulse = true,
     NearPulseMin = 0.92,
     NearPulseMax = 1.08,
-    NearPulseSpeed = 2.5
+    NearPulseSpeed = 2.5,
+
+    -- Közelről megjelenő NUI badge (apró címke a marker felett)
+    BadgeDistance = 5.0   -- ezen belül jelenik meg a kis NUI badge
 }
 
 -- ===== STÍLUSOK =====
+-- theme: NUI szín téma | icon: ikon név (web/icons/ mappából) | color: DrawMarker RGBA
 Config.Styles = {
-    garage         = { color = { r=255, g=200, b=50,  a=160 }, title = 'Garázs',              helpText = '~INPUT_CONTEXT~ Garázs' },
-    mechanic       = { color = { r=100, g=180, b=255, a=160 }, title = 'Szerviz',             helpText = '~INPUT_CONTEXT~ Szerviz' },
-    impound        = { color = { r=255, g=140, b=50,  a=160 }, title = 'Telephely',           helpText = '~INPUT_CONTEXT~ Telephely' },
-    document       = { color = { r=80,  g=170, b=255, a=160 }, title = 'Okmányiroda',         helpText = '~INPUT_CONTEXT~ Okmányiroda' },
-    shop           = { color = { r=80,  g=230, b=130, a=160 }, title = 'Bolt',                helpText = '~INPUT_CONTEXT~ Bolt' },
-    police         = { color = { r=40,  g=120, b=255, a=180 }, title = 'Rendőrség',           helpText = '~INPUT_CONTEXT~ Rendőrség' },
-    hospital       = { color = { r=80,  g=220, b=255, a=160 }, title = 'Kórház',              helpText = '~INPUT_CONTEXT~ Kórház' },
-    warning        = { color = { r=255, g=60,  b=60,  a=180 }, title = 'Veszély',             helpText = '~INPUT_CONTEXT~ Veszély' },
-    info           = { color = { r=100, g=210, b=255, a=140 }, title = 'Információ',          helpText = '~INPUT_CONTEXT~ Információ' },
-    bank           = { color = { r=60,  g=220, b=200, a=160 }, title = 'Bank',                helpText = '~INPUT_CONTEXT~ Bank' },
-    jobcenter      = { color = { r=170, g=110, b=255, a=160 }, title = 'Munkaügyi központ',   helpText = '~INPUT_CONTEXT~ Munkafelvétel' },
-    fuel           = { color = { r=180, g=240, b=80,  a=160 }, title = 'Tankolás',            helpText = '~INPUT_CONTEXT~ Tankolás' },
-    clothing       = { color = { r=255, g=120, b=190, a=160 }, title = 'Ruhabolt',            helpText = '~INPUT_CONTEXT~ Öltözés' },
-    house          = { color = { r=255, g=200, b=60,  a=150 }, title = 'Ingatlan',            helpText = '~INPUT_CONTEXT~ Belépés' },
-    warehouse      = { color = { r=200, g=215, b=240, a=150 }, title = 'Raktár',              helpText = '~INPUT_CONTEXT~ Raktár' },
-    faction        = { color = { r=170, g=110, b=255, a=160 }, title = 'Frakció',             helpText = '~INPUT_CONTEXT~ Frakció' },
-    blackmarket    = { color = { r=220, g=50,  b=90,  a=170 }, title = 'Feketepiac',          helpText = '~INPUT_CONTEXT~ Feketepiac' },
-    teleport       = { color = { r=80,  g=170, b=255, a=160 }, title = 'Teleport',            helpText = '~INPUT_CONTEXT~ Teleport' },
-    event          = { color = { r=170, g=110, b=255, a=170 }, title = 'Esemény',             helpText = '~INPUT_CONTEXT~ Esemény' },
-    crafting       = { color = { r=255, g=140, b=50,  a=160 }, title = 'Crafting',            helpText = '~INPUT_CONTEXT~ Készítés' },
-    fishing        = { color = { r=80,  g=210, b=240, a=150 }, title = 'Horgászat',           helpText = '~INPUT_CONTEXT~ Horgászat' },
-    mining         = { color = { r=240, g=200, b=80,  a=160 }, title = 'Bányászat',           helpText = '~INPUT_CONTEXT~ Bányászat' },
-    carwash        = { color = { r=90,  g=210, b=240, a=150 }, title = 'Autómosó',            helpText = '~INPUT_CONTEXT~ Mosás' },
+    garage         = { theme='amber', icon='car',       color = { r=255, g=200, b=50,  a=160 }, title = 'Garázs',              helpText = '~INPUT_CONTEXT~ Garázs' },
+    mechanic       = { theme='sky',   icon='wrench',    color = { r=100, g=180, b=255, a=160 }, title = 'Szerviz',             helpText = '~INPUT_CONTEXT~ Szerviz' },
+    impound        = { theme='amber', icon='truck',     color = { r=255, g=140, b=50,  a=160 }, title = 'Telephely',           helpText = '~INPUT_CONTEXT~ Telephely' },
+    document       = { theme='blue',  icon='document',  color = { r=80,  g=170, b=255, a=160 }, title = 'Okmányiroda',         helpText = '~INPUT_CONTEXT~ Okmányiroda' },
+    shop           = { theme='mint',  icon='basket',    color = { r=80,  g=230, b=130, a=160 }, title = 'Bolt',                helpText = '~INPUT_CONTEXT~ Bolt' },
+    police         = { theme='blue',  icon='shield',    color = { r=40,  g=120, b=255, a=180 }, title = 'Rendőrség',           helpText = '~INPUT_CONTEXT~ Rendőrség' },
+    hospital       = { theme='cyan',  icon='hospital',  color = { r=80,  g=220, b=255, a=160 }, title = 'Kórház',              helpText = '~INPUT_CONTEXT~ Kórház' },
+    warning        = { theme='red',   icon='warning',   color = { r=255, g=60,  b=60,  a=180 }, title = 'Veszély',             helpText = '~INPUT_CONTEXT~ Veszély' },
+    info           = { theme='cyan',  icon='star',      color = { r=100, g=210, b=255, a=140 }, title = 'Információ',          helpText = '~INPUT_CONTEXT~ Információ' },
+    bank           = { theme='teal',  icon='bank',      color = { r=60,  g=220, b=200, a=160 }, title = 'Bank',                helpText = '~INPUT_CONTEXT~ Bank' },
+    jobcenter      = { theme='purple',icon='briefcase', color = { r=170, g=110, b=255, a=160 }, title = 'Munkaügyi központ',   helpText = '~INPUT_CONTEXT~ Munkafelvétel' },
+    fuel           = { theme='lime',  icon='fuel',      color = { r=180, g=240, b=80,  a=160 }, title = 'Tankolás',            helpText = '~INPUT_CONTEXT~ Tankolás' },
+    clothing       = { theme='pink',  icon='clothing',  color = { r=255, g=120, b=190, a=160 }, title = 'Ruhabolt',            helpText = '~INPUT_CONTEXT~ Öltözés' },
+    house          = { theme='amber', icon='house',     color = { r=255, g=200, b=60,  a=150 }, title = 'Ingatlan',            helpText = '~INPUT_CONTEXT~ Belépés' },
+    warehouse      = { theme='white', icon='box',       color = { r=200, g=215, b=240, a=150 }, title = 'Raktár',              helpText = '~INPUT_CONTEXT~ Raktár' },
+    faction        = { theme='purple',icon='users',     color = { r=170, g=110, b=255, a=160 }, title = 'Frakció',             helpText = '~INPUT_CONTEXT~ Frakció' },
+    blackmarket    = { theme='red',   icon='mask',      color = { r=220, g=50,  b=90,  a=170 }, title = 'Feketepiac',          helpText = '~INPUT_CONTEXT~ Feketepiac' },
+    teleport       = { theme='blue',  icon='star',      color = { r=80,  g=170, b=255, a=160 }, title = 'Teleport',            helpText = '~INPUT_CONTEXT~ Teleport' },
+    event          = { theme='purple',icon='crown',     color = { r=170, g=110, b=255, a=170 }, title = 'Esemény',             helpText = '~INPUT_CONTEXT~ Esemény' },
+    crafting       = { theme='amber', icon='gear',      color = { r=255, g=140, b=50,  a=160 }, title = 'Crafting',            helpText = '~INPUT_CONTEXT~ Készítés' },
+    fishing        = { theme='cyan',  icon='fishing',   color = { r=80,  g=210, b=240, a=150 }, title = 'Horgászat',           helpText = '~INPUT_CONTEXT~ Horgászat' },
+    mining         = { theme='amber', icon='pickaxe',   color = { r=240, g=200, b=80,  a=160 }, title = 'Bányászat',           helpText = '~INPUT_CONTEXT~ Bányászat' },
+    carwash        = { theme='cyan',  icon='droplet',   color = { r=90,  g=210, b=240, a=150 }, title = 'Autómosó',            helpText = '~INPUT_CONTEXT~ Mosás' },
 
     -- REALRPG stílusok
-    real_registry     = { color = { r=80,  g=175, b=255, a=170 }, title = 'Okmányiroda',       helpText = '~INPUT_CONTEXT~ Okmányiroda' },
-    real_inspection   = { color = { r=100, g=180, b=255, a=170 }, title = 'Műszaki vizsga',    helpText = '~INPUT_CONTEXT~ Műszaki vizsga' },
-    real_dealership   = { color = { r=255, g=210, b=60,  a=170 }, title = 'Autókereskedés',    helpText = '~INPUT_CONTEXT~ Autókereskedés' },
-    real_faction_hq   = { color = { r=170, g=115, b=255, a=165 }, title = 'Frakció központ',   helpText = '~INPUT_CONTEXT~ Frakció központ' },
-    real_company      = { color = { r=70,  g=220, b=210, a=165 }, title = 'Cég dashboard',     helpText = '~INPUT_CONTEXT~ Cég' },
-    real_illegal      = { color = { r=220, g=55,  b=95,  a=175 }, title = 'Illegál piac',      helpText = '~INPUT_CONTEXT~ Illegál piac' },
-    real_mining       = { color = { r=240, g=200, b=80,  a=160 }, title = 'Bánya',             helpText = '~INPUT_CONTEXT~ Bánya' },
-    real_fishing      = { color = { r=90,  g=220, b=245, a=160 }, title = 'Horgászhely',       helpText = '~INPUT_CONTEXT~ Horgászhely' },
-    real_vip          = { color = { r=255, g=130, b=200, a=170 }, title = 'VIP zóna',          helpText = '~INPUT_CONTEXT~ VIP zóna' },
-    real_cityhall     = { color = { r=200, g=220, b=250, a=165 }, title = 'Városháza',         helpText = '~INPUT_CONTEXT~ Városháza' }
+    real_registry     = { theme='blue',   icon='document',  color = { r=80,  g=175, b=255, a=170 }, title = 'Okmányiroda',       helpText = '~INPUT_CONTEXT~ Okmányiroda' },
+    real_inspection   = { theme='sky',    icon='wrench',    color = { r=100, g=180, b=255, a=170 }, title = 'Műszaki vizsga',    helpText = '~INPUT_CONTEXT~ Műszaki vizsga' },
+    real_dealership   = { theme='amber',  icon='car',       color = { r=255, g=210, b=60,  a=170 }, title = 'Autókereskedés',    helpText = '~INPUT_CONTEXT~ Autókereskedés' },
+    real_faction_hq   = { theme='purple', icon='users',     color = { r=170, g=115, b=255, a=165 }, title = 'Frakció központ',   helpText = '~INPUT_CONTEXT~ Frakció központ' },
+    real_company      = { theme='teal',   icon='briefcase', color = { r=70,  g=220, b=210, a=165 }, title = 'Cég dashboard',     helpText = '~INPUT_CONTEXT~ Cég' },
+    real_illegal      = { theme='red',    icon='mask',      color = { r=220, g=55,  b=95,  a=175 }, title = 'Illegál piac',      helpText = '~INPUT_CONTEXT~ Illegál piac' },
+    real_mining       = { theme='amber',  icon='pickaxe',   color = { r=240, g=200, b=80,  a=160 }, title = 'Bánya',             helpText = '~INPUT_CONTEXT~ Bánya' },
+    real_fishing      = { theme='cyan',   icon='fishing',   color = { r=90,  g=220, b=245, a=160 }, title = 'Horgászhely',       helpText = '~INPUT_CONTEXT~ Horgászhely' },
+    real_vip          = { theme='pink',   icon='crown',     color = { r=255, g=130, b=200, a=170 }, title = 'VIP zóna',          helpText = '~INPUT_CONTEXT~ VIP zóna' },
+    real_cityhall     = { theme='white',  icon='star',      color = { r=200, g=220, b=250, a=165 }, title = 'Városháza',         helpText = '~INPUT_CONTEXT~ Városháza' }
 }
 
 -- ===== DEMO MARKEREK =====

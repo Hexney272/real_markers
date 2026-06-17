@@ -477,3 +477,101 @@ for _, name in ipairs(demoEvents) do
         print(('[real_markers] Demo marker hasznalva: %s'):format(name))
     end)
 end
+
+
+
+-- ===== NUI EDITOR (rmeditor parancs) =====
+-- A NUI CSAK az editor megnyitásakor aktív (SetNuiFocus),
+-- a markerek továbbra is natív DrawMarker-ek, nincs NUI resmon.
+
+local editorOpen = false
+
+local function openEditor()
+    if editorOpen then return end
+    editorOpen = true
+    SetNuiFocus(true, true)
+    SendNUIMessage({
+        action = 'openEditor',
+        styles = Config.Styles
+    })
+    -- Kérjük a szerveri marker listát az editorhoz
+    TriggerServerEvent('real_markers:server:editorGetData')
+end
+
+local function closeEditor()
+    if not editorOpen then return end
+    editorOpen = false
+    SetNuiFocus(false, false)
+end
+
+RegisterNetEvent('real_markers:client:editorData', function(data)
+    SendNUIMessage({
+        action = 'editorData',
+        ok = data.ok ~= false,
+        styles = Config.Styles,
+        markers = data.markers or {},
+        message = data.message
+    })
+end)
+
+RegisterNUICallback('closeEditor', function(_, cb)
+    closeEditor()
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('getPlayerCoords', function(_, cb)
+    local coords = GetEntityCoords(PlayerPedId())
+    cb({ ok = true, x = tonumber(string.format('%.3f', coords.x)), y = tonumber(string.format('%.3f', coords.y)), z = tonumber(string.format('%.3f', coords.z)) })
+end)
+
+RegisterNUICallback('previewMarker', function(data, cb)
+    if type(data) ~= 'table' or not data.coords then
+        cb({ ok = false })
+        return
+    end
+    -- Helyi preview: regisztrálunk egy ideiglenes markert 20 mp-re
+    local id = '__editor_preview__'
+    exports['real_markers']:RemoveCustomMarker(id)
+    exports['real_markers']:RegisterImageMarker(id, data)
+    SetTimeout(20000, function()
+        exports['real_markers']:RemoveCustomMarker(id)
+    end)
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('saveMarker', function(data, cb)
+    if type(data) ~= 'table' or not data.id or data.id == '' then
+        cb({ ok = false })
+        return
+    end
+    TriggerServerEvent('real_markers:server:adminCreate', data)
+    -- Frissítjük az editor listáját
+    Wait(300)
+    TriggerServerEvent('real_markers:server:editorGetData')
+    cb({ ok = true })
+end)
+
+RegisterNUICallback('deleteMarker', function(data, cb)
+    if type(data) ~= 'table' or not data.id or data.id == '' then
+        cb({ ok = false })
+        return
+    end
+    TriggerServerEvent('real_markers:server:adminDelete', data.id)
+    Wait(300)
+    TriggerServerEvent('real_markers:server:editorGetData')
+    cb({ ok = true })
+end)
+
+RegisterCommand('rmeditor', function()
+    openEditor()
+end, false)
+
+-- ESC bezárás kezelés (ha a NUI-ban nem kapja el)
+CreateThread(function()
+    while true do
+        if editorOpen and IsControlJustReleased(0, 177) then -- 177 = ESC / Backspace
+            closeEditor()
+        end
+        Wait(editorOpen and 0 or 500)
+    end
+end)

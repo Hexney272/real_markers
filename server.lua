@@ -272,3 +272,22 @@ end)
 exports('DeleteDatabaseMarker', function(id)
     return deleteMarker(id)
 end)
+
+
+
+RegisterNetEvent('real_markers:server:editorGetData', function()
+    local src = source
+    if not isAdmin(src) then
+        TriggerClientEvent('real_markers:client:editorData', src, { ok = false, message = 'Nincs jogosultságod az editorhoz.', markers = {} })
+        return
+    end
+
+    -- DB markerek lista formátumban az editornak
+    local list = {}
+    for id, data in pairs(DB_MARKERS) do
+        list[#list + 1] = data
+    end
+    table.sort(list, function(a, b) return (a.id or '') < (b.id or '') end)
+
+    TriggerClientEvent('real_markers:client:editorData', src, { ok = true, markers = list })
+end)

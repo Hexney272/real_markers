@@ -1,193 +1,274 @@
+local DB_MARKERS = {}
+local ESX = nil
 
-local cachedDbMarkers = {}
+local function getESX()
+    if ESX then return ESX end
+    if GetResourceState('es_extended') == 'started' then
+        local ok, obj = pcall(function() return exports['es_extended']:getSharedObject() end)
+        if ok then ESX = obj end
+    end
+    return ESX
+end
+
+local function decodeData(value)
+    if not value or value == '' then return {} end
+    local ok, decoded = pcall(json.decode, value)
+    if ok and type(decoded) == 'table' then return decoded end
+    return {}
+end
+
+local function encodeData(value)
+    return json.encode(value or {})
+end
+
 
 local function isAdmin(src)
     if src == 0 then return true end
-    if Config.RequireAceForEditor == false then return true end
-    return IsPlayerAceAllowed(src, Config.AdminAce or 'real_markers.admin')
+    local srcStr = tostring(src)
+    if Config.AdminAce and IsPlayerAceAllowed(srcStr, Config.AdminAce) then return true end
+
+    local esx = getESX()
+    if esx and esx.GetPlayerFromId then
+        local xPlayer = esx.GetPlayerFromId(src)
+        if xPlayer then
+            local group = nil
+            if xPlayer.getGroup then group = xPlayer.getGroup() end
+            if group and Config.AdminGroups[group] then return true end
+        end
+    end
+
+    return false
 end
 
-local function dbg(msg)
-    if Config.Debug then print('[real_markers] ' .. msg) end
+local function notify(src, msg)
+    if not src or src == 0 then
+        print('[real_markers] ' .. tostring(msg))
+        return
+    end
+    TriggerClientEvent('chat:addMessage', src, { args = { '^3real_markers', tostring(msg) } })
 end
 
-local function encodePerms(value)
-    if not value then return nil end
-    if type(value) == 'string' then return value end
-    return json.encode(value)
+
+local function ensureTable()
+    if not Config.AutoCreateTable then return end
+    MySQL.query.await(([[
+        CREATE TABLE IF NOT EXISTS `%s` (
+            `id` VARCHAR(80) NOT NULL,
+            `style` VARCHAR(80) NOT NULL DEFAULT 'info',
+            `label` VARCHAR(120) DEFAULT NULL,
+            `enabled` TINYINT(1) NOT NULL DEFAULT 1,
+            `data` LONGTEXT NOT NULL,
+            `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `enabled` (`enabled`),
+            KEY `style` (`style`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    ]]):format(Config.DatabaseTable))
 end
 
-local function decodePerms(value)
-    if not value or value == '' then return nil end
-    if type(value) == 'table' then return value end
-    local ok, decoded = pcall(json.decode, value)
-    if ok then return decoded end
+local function loadMarkers()
+    if not Config.UseDatabase then return end
+    ensureTable()
+    local rows = MySQL.query.await(('SELECT id, style, label, enabled, data FROM `%s` WHERE enabled = 1'):format(Config.DatabaseTable)) or {}
+    DB_MARKERS = {}
+    for _, row in ipairs(rows) do
+        local data = decodeData(row.data)
+        data.id = row.id
+        data.style = data.style or row.style or 'info'
+        data.label = data.label or row.label
+        data.db = true
+        DB_MARKERS[row.id] = data
+    end
+    TriggerClientEvent('real_markers:client:setDatabaseMarkers', -1, DB_MARKERS)
+    print(('[real_markers] %s MySQL marker betoltve'):format(#rows))
+end
+
+
+local function upsertMarker(id, data)
+    if not id or id == '' or type(data) ~= 'table' then return false end
+    data.id = id
+    local style = data.style or 'info'
+    local label = data.label or data.title or id
+    local encoded = encodeData(data)
+    MySQL.insert.await(([[
+        INSERT INTO `%s` (`id`, `style`, `label`, `enabled`, `data`)
+        VALUES (?, ?, ?, 1, ?)
+        ON DUPLICATE KEY UPDATE
+            `style` = VALUES(`style`),
+            `label` = VALUES(`label`),
+            `enabled` = VALUES(`enabled`),
+            `data` = VALUES(`data`)
+    ]]):format(Config.DatabaseTable), { id, style, label, encoded })
+    DB_MARKERS[id] = data
+    TriggerClientEvent('real_markers:client:upsertDatabaseMarker', -1, id, data)
+    return true
+end
+
+local function deleteMarker(id)
+    if not id or id == '' then return false end
+    MySQL.update.await(('UPDATE `%s` SET enabled = 0 WHERE id = ?'):format(Config.DatabaseTable), { id })
+    DB_MARKERS[id] = nil
+    TriggerClientEvent('real_markers:client:removeDatabaseMarker', -1, id)
+    return true
+end
+
+
+local function getPlayerJobAndGrade(src)
+    local esx = getESX()
+    if not esx or not esx.GetPlayerFromId then return nil, 0 end
+    local xPlayer = esx.GetPlayerFromId(src)
+    if not xPlayer then return nil, 0 end
+    local job = xPlayer.job
+    if xPlayer.getJob then job = xPlayer.getJob() end
+    if not job then return nil, 0 end
+    return job.name, tonumber(job.grade or job.grade_level or 0) or 0
+end
+
+local function getPlayerGroup(src)
+    local esx = getESX()
+    if not esx or not esx.GetPlayerFromId then return nil end
+    local xPlayer = esx.GetPlayerFromId(src)
+    if not xPlayer then return nil end
+    if xPlayer.getGroup then return xPlayer.getGroup() end
     return nil
 end
 
-local function rowToMarker(row)
-    return {
-        id = row.id,
-        style = row.style,
-        coords = { x = row.x, y = row.y, z = row.z },
-        title = row.title,
-        subtitle = row.subtitle,
-        helpText = row.help_text,
-        event = row.event,
-        serverEvent = row.server_event == 1,
-        target = row.target == 1,
-        targetLabel = row.target_label,
-        drawDistance = row.draw_distance,
-        interactDistance = row.interact_distance,
-        permissions = decodePerms(row.permissions),
-        status = row.status,
-        theme = row.theme,
-        icon = row.icon,
-        mode = row.mode,
-        enabled = row.enabled == 1
-    }
-end
-
-local function createTable()
-    if not Config.AutoCreateTable then return end
-    MySQL.query.await([[
-        CREATE TABLE IF NOT EXISTS `real_markers` (
-          `id` varchar(80) NOT NULL,
-          `style` varchar(80) NOT NULL DEFAULT 'subtle_document',
-          `x` double NOT NULL DEFAULT 0,
-          `y` double NOT NULL DEFAULT 0,
-          `z` double NOT NULL DEFAULT 0,
-          `title` varchar(120) DEFAULT NULL,
-          `subtitle` varchar(180) DEFAULT NULL,
-          `help_text` varchar(180) DEFAULT NULL,
-          `event` varchar(120) DEFAULT NULL,
-          `server_event` tinyint(1) NOT NULL DEFAULT 0,
-          `target` tinyint(1) NOT NULL DEFAULT 0,
-          `target_label` varchar(120) DEFAULT NULL,
-          `draw_distance` double DEFAULT NULL,
-          `interact_distance` double DEFAULT NULL,
-          `permissions` longtext DEFAULT NULL,
-          `status` varchar(80) DEFAULT NULL,
-          `theme` varchar(40) DEFAULT NULL,
-          `icon` varchar(80) DEFAULT NULL,
-          `mode` varchar(40) DEFAULT NULL,
-          `enabled` tinyint(1) NOT NULL DEFAULT 1,
-          `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          PRIMARY KEY (`id`),
-          KEY `enabled` (`enabled`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    ]])
-end
-
-local function loadDbMarkers()
-    createTable()
-    local rows = MySQL.query.await('SELECT * FROM real_markers WHERE enabled = 1') or {}
-    cachedDbMarkers = {}
-    for _, row in ipairs(rows) do
-        cachedDbMarkers[#cachedDbMarkers + 1] = rowToMarker(row)
+local function hasItem(src, item, count)
+    count = tonumber(count) or 1
+    if not item or item == '' then return true end
+    if Config.UseOxInventory and GetResourceState('ox_inventory') == 'started' then
+        local ok, amount = pcall(function()
+            return exports.ox_inventory:Search(src, 'count', item)
+        end)
+        if ok and (tonumber(amount) or 0) >= count then return true end
     end
-    dbg(('Loaded %s MySQL markers'):format(#cachedDbMarkers))
-    return cachedDbMarkers
+    local esx = getESX()
+    if esx and esx.GetPlayerFromId then
+        local xPlayer = esx.GetPlayerFromId(src)
+        if xPlayer and xPlayer.getInventoryItem then
+            local invItem = xPlayer.getInventoryItem(item)
+            if invItem and (tonumber(invItem.count) or 0) >= count then return true end
+        end
+    end
+    return false
 end
 
-local function broadcastMarkers()
-    TriggerClientEvent('real_markers:client:setDbMarkers', -1, cachedDbMarkers)
+
+local function checkAccess(src, data)
+    local permissions = data.permissions or data.access
+    if not permissions then return true end
+    if permissions.ace and not IsPlayerAceAllowed(tostring(src), permissions.ace) then
+        return false, 'Nincs ACE jogosultságod.'
+    end
+    if permissions.groups then
+        local group = getPlayerGroup(src)
+        if type(permissions.groups) == 'table' and not permissions.groups[group] then
+            return false, 'Nincs megfelelő rangod.'
+        end
+    end
+    if permissions.jobs then
+        local jobName, grade = getPlayerJobAndGrade(src)
+        local minGrade = permissions.jobs[jobName]
+        if minGrade == nil then
+            return false, 'Ehhez nincs megfelelő munkád.'
+        end
+        if tonumber(grade) < tonumber(minGrade or 0) then
+            return false, 'Túl alacsony a rangod.'
+        end
+    end
+    if permissions.items then
+        for item, required in pairs(permissions.items) do
+            local cnt = required
+            if type(required) == 'boolean' then cnt = required and 1 or 0 end
+            if tonumber(cnt) and tonumber(cnt) > 0 and not hasItem(src, item, cnt) then
+                return false, ('Hiányzó item: %s'):format(item)
+            end
+        end
+    end
+    return true
 end
 
-CreateThread(function()
-    Wait(800)
-    loadDbMarkers()
-    broadcastMarkers()
+
+AddEventHandler('onResourceStart', function(resource)
+    if resource ~= GetCurrentResourceName() then return end
+    CreateThread(function()
+        Wait(700)
+        if Config.UseDatabase then loadMarkers() end
+    end)
 end)
 
 RegisterNetEvent('real_markers:server:requestMarkers', function()
-    TriggerClientEvent('real_markers:client:setDbMarkers', source, cachedDbMarkers)
-end)
-
-RegisterNetEvent('real_markers:server:reloadMarkers', function()
     local src = source
-    if src ~= 0 and not isAdmin(src) then return end
-    loadDbMarkers()
-    broadcastMarkers()
-    if src ~= 0 then TriggerClientEvent('real_markers:client:notify', src, 'Markerek újratöltve MySQL-ből.', 'success') end
+    TriggerClientEvent('real_markers:client:setDatabaseMarkers', src, DB_MARKERS)
 end)
 
-RegisterNetEvent('real_markers:server:editorRequest', function(requestId)
+RegisterNetEvent('real_markers:server:interact', function(id)
     local src = source
-    if not isAdmin(src) then
-        TriggerClientEvent('real_markers:client:editorResponse', src, requestId, false, {}, Config.SubtleStyles, 'Nincs jogosultságod. Add hozzá: add_ace group.admin real_markers.admin allow')
+    local data = DB_MARKERS[id]
+    if not data then return end
+    local allowed, reason = checkAccess(src, data)
+    if not allowed then
+        TriggerClientEvent('real_markers:client:accessDenied', src, id, reason or 'Nincs jogosultságod.')
         return
     end
-    TriggerClientEvent('real_markers:client:editorResponse', src, requestId, true, cachedDbMarkers, Config.SubtleStyles)
+    TriggerClientEvent('real_markers:client:doAction', src, id, data)
 end)
 
-RegisterNetEvent('real_markers:server:saveMarker', function(marker)
+RegisterNetEvent('real_markers:server:adminCreate', function(payload)
     local src = source
-    if not isAdmin(src) then
-        TriggerClientEvent('real_markers:client:notify', src, 'Nincs jogosultságod marker mentéshez.', 'error')
-        return
-    end
-    if type(marker) ~= 'table' or not marker.id or marker.id == '' or not marker.coords then
-        TriggerClientEvent('real_markers:client:notify', src, 'Hibás marker adat. ID és koordináta kötelező.', 'error')
-        return
-    end
-
-    local c = marker.coords
-    local permissions = encodePerms(marker.permissions)
-    MySQL.update.await([[INSERT INTO real_markers
-        (id, style, x, y, z, title, subtitle, help_text, event, server_event, target, target_label, draw_distance, interact_distance, permissions, status, theme, icon, mode, enabled)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-        style=VALUES(style), x=VALUES(x), y=VALUES(y), z=VALUES(z), title=VALUES(title), subtitle=VALUES(subtitle), help_text=VALUES(help_text),
-        event=VALUES(event), server_event=VALUES(server_event), target=VALUES(target), target_label=VALUES(target_label), draw_distance=VALUES(draw_distance),
-        interact_distance=VALUES(interact_distance), permissions=VALUES(permissions), status=VALUES(status), theme=VALUES(theme), icon=VALUES(icon), mode=VALUES(mode), enabled=VALUES(enabled)]], {
-        marker.id,
-        marker.style or 'subtle_document',
-        tonumber(c.x or c[1]) or 0.0,
-        tonumber(c.y or c[2]) or 0.0,
-        tonumber(c.z or c[3]) or 0.0,
-        marker.title,
-        marker.subtitle,
-        marker.helpText,
-        marker.event,
-        marker.serverEvent and 1 or 0,
-        marker.target and 1 or 0,
-        marker.targetLabel,
-        tonumber(marker.drawDistance),
-        tonumber(marker.interactDistance),
-        permissions,
-        marker.status,
-        marker.theme,
-        marker.icon,
-        marker.mode,
-        marker.enabled == false and 0 or 1
-    })
-
-    loadDbMarkers()
-    broadcastMarkers()
-    TriggerClientEvent('real_markers:client:notify', src, 'Marker mentve MySQL-be.', 'success')
+    if not isAdmin(src) then return notify(src, 'Nincs jogosultságod marker létrehozáshoz.') end
+    if type(payload) ~= 'table' or not payload.id or not payload.coords then return notify(src, 'Hibás marker adat.') end
+    payload.style = payload.style or 'info'
+    payload.title = payload.title or (Config.Styles[payload.style] and Config.Styles[payload.style].title) or payload.id
+    payload.helpText = payload.helpText or '~INPUT_CONTEXT~ Interakció'
+    payload.interactDistance = payload.interactDistance or Config.DefaultInteractDistance
+    payload.drawDistance = payload.drawDistance or Config.DefaultDrawDistance
+    upsertMarker(payload.id, payload)
+    notify(src, ('Marker létrehozva/mentve: %s'):format(payload.id))
 end)
 
-RegisterNetEvent('real_markers:server:deleteMarker', function(id)
+RegisterNetEvent('real_markers:server:adminUpdate', function(id, patch)
     local src = source
-    if not isAdmin(src) then
-        TriggerClientEvent('real_markers:client:notify', src, 'Nincs jogosultságod marker törléshez.', 'error')
-        return
-    end
-    if not id or id == '' then
-        TriggerClientEvent('real_markers:client:notify', src, 'Hiányzó marker ID.', 'error')
-        return
-    end
-    MySQL.update.await('DELETE FROM real_markers WHERE id = ?', { id })
-    loadDbMarkers()
-    broadcastMarkers()
-    TriggerClientEvent('real_markers:client:notify', src, 'Marker törölve.', 'success')
+    if not isAdmin(src) then return notify(src, 'Nincs jogosultságod marker módosításhoz.') end
+    if not DB_MARKERS[id] then return notify(src, 'Nincs ilyen marker: ' .. tostring(id)) end
+    if type(patch) ~= 'table' then return end
+    for k, v in pairs(patch) do DB_MARKERS[id][k] = v end
+    upsertMarker(id, DB_MARKERS[id])
+    notify(src, ('Marker módosítva: %s'):format(id))
 end)
+
+RegisterNetEvent('real_markers:server:adminDelete', function(id)
+    local src = source
+    if not isAdmin(src) then return notify(src, 'Nincs jogosultságod marker törléshez.') end
+    if deleteMarker(id) then notify(src, ('Marker törölve: %s'):format(id)) end
+end)
+
 
 RegisterCommand('rmreload', function(src)
-    if not isAdmin(src) then return end
-    loadDbMarkers()
-    broadcastMarkers()
-    if src ~= 0 then TriggerClientEvent('real_markers:client:notify', src, 'Markerek újratöltve MySQL-ből.', 'success') end
-end, false)
+    if not isAdmin(src) then return notify(src, 'Nincs jogosultságod.') end
+    loadMarkers()
+    notify(src, 'Markerek újratöltve MySQL-ből.')
+end, true)
+
+RegisterCommand('rmlist', function(src)
+    if not isAdmin(src) then return notify(src, 'Nincs jogosultságod.') end
+    local count = 0
+    for id in pairs(DB_MARKERS) do
+        count = count + 1
+        if src ~= 0 and count <= 15 then notify(src, ('%s'):format(id)) end
+    end
+    notify(src, ('Aktív MySQL markerek: %s'):format(count))
+end, true)
+
+exports('GetDatabaseMarkers', function()
+    return DB_MARKERS
+end)
+
+exports('SaveDatabaseMarker', function(id, data)
+    return upsertMarker(id, data)
+end)
+
+exports('DeleteDatabaseMarker', function(id)
+    return deleteMarker(id)
+end)

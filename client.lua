@@ -1,32 +1,58 @@
-
+-- real_markers v2 — Natív 3D DrawMarker rendszer (lebegő ikonok, NUI nélkül)
 local activeMarkers = {}
-local dbMarkers = {}
-local nearbyMarkers = {}
-local frameMarkers = {}
-local lastPayload = ''
-local editorRequest = 0
-local createdTargets = {}
-local permissionCache = {}
+local databaseMarkers = {}
+local oxZones = {}
+local demoEnabled = Config.EnableDemoMarkers == true
+local ESX = nil
+local playerJob = nil
+local playerGrade = 0
+local playerGroup = nil
 
-local function mergeTable(base, override)
-    local result = {}
-    if base then
-        for k, v in pairs(base) do
-            if type(v) == 'table' and type(v.x) ~= 'number' then result[k] = mergeTable(v, nil) else result[k] = v end
-        end
+local function getESX()
+    if ESX then return ESX end
+    if Config.UseESX and GetResourceState('es_extended') == 'started' then
+        local ok, obj = pcall(function() return exports['es_extended']:getSharedObject() end)
+        if ok then ESX = obj end
     end
-    if override then
-        for k, v in pairs(override) do
-            if type(v) == 'table' and type(result[k]) == 'table' and type(v.x) ~= 'number' then result[k] = mergeTable(result[k], v) else result[k] = v end
-        end
-    end
-    return result
+    return ESX
 end
+
+local function refreshPlayerData()
+    local esx = getESX()
+    if not esx then return end
+    local data = esx.GetPlayerData and esx.GetPlayerData() or {}
+    if data.job then
+        playerJob = data.job.name
+        playerGrade = tonumber(data.job.grade or data.job.grade_level or 0) or 0
+    end
+    playerGroup = data.group or playerGroup
+end
+
+CreateThread(function()
+    Wait(1000)
+    refreshPlayerData()
+    TriggerServerEvent('real_markers:server:requestMarkers')
+end)
+
+RegisterNetEvent('esx:playerLoaded', function(xPlayer)
+    if xPlayer and xPlayer.job then
+        playerJob = xPlayer.job.name
+        playerGrade = tonumber(xPlayer.job.grade or 0) or 0
+    end
+    refreshPlayerData()
+end)
+
+RegisterNetEvent('esx:setJob', function(job)
+    if job then
+        playerJob = job.name
+        playerGrade = tonumber(job.grade or 0) or 0
+    end
+end)
 
 local function toVec3(value)
     if type(value) == 'vector3' then return value end
     if type(value) == 'vector4' then return vec3(value.x, value.y, value.z) end
-    if type(value) == 'table' then return vec3(tonumber(value.x or value[1]) or 0.0, tonumber(value.y or value[2]) or 0.0, tonumber(value.z or value[3]) or 0.0) end
+    if type(value) == 'table' then return vec3(value.x or value[1], value.y or value[2], value.z or value[3]) end
     return vec3(0.0, 0.0, 0.0)
 end
 
@@ -36,379 +62,418 @@ local function showHelpText(message)
     EndTextCommandDisplayHelp(0, false, true, -1)
 end
 
-local function notify(msg, typ)
-    SendNUIMessage({ action = 'notify', message = msg, type = typ or 'info' })
+local function notify(msg)
+    BeginTextCommandThefeedPost('STRING')
+    AddTextComponentSubstringPlayerName(msg)
+    EndTextCommandThefeedPostTicker(false, false)
 end
-RegisterNetEvent('real_markers:client:notify', notify)
 
-local function prepareMarker(id, data)
+local function hasItem(item, count)
+    count = tonumber(count) or 1
+    if not item or item == '' then return true end
+    if Config.UseOxInventory and GetResourceState('ox_inventory') == 'started' then
+        local ok, amount = pcall(function() return exports.ox_inventory:Search('count', item) end)
+        if ok and (tonumber(amount) or 0) >= count then return true end
+    end
+    local esx = getESX()
+    local pdata = esx and esx.GetPlayerData and esx.GetPlayerData() or {}
+    if pdata.inventory then
+        for _, invItem in pairs(pdata.inventory) do
+            if invItem.name == item and (tonumber(invItem.count) or 0) >= count then return true end
+        end
+    end
+    return false
+end
+
+local function localAccess(data)
+    local permissions = data.visibility or data.permissions or data.access
+    if not permissions then return true end
+    if permissions.jobs then
+        local minGrade = permissions.jobs[playerJob]
+        if minGrade == nil then return false end
+        if tonumber(playerGrade or 0) < tonumber(minGrade or 0) then return false end
+    end
+    if permissions.groups and playerGroup and not permissions.groups[playerGroup] then return false end
+    if permissions.items then
+        for item, required in pairs(permissions.items) do
+            local cnt = required
+            if type(required) == 'boolean' then cnt = required and 1 or 0 end
+            if tonumber(cnt) and tonumber(cnt) > 0 and not hasItem(item, cnt) then return false end
+        end
+    end
+    return true
+end
+
+local function mergeTable(base, override)
+    local result = {}
+    if base then for k, v in pairs(base) do result[k] = v end end
+    if override then for k, v in pairs(override) do result[k] = v end end
+    return result
+end
+
+local function prepareMarker(id, data, sourceType)
     if not id or not data or not data.coords then return nil end
-    local styleName = data.style or 'subtle_document'
-    local styleData = Config.SubtleStyles[styleName] or Config.SubtleStyles.subtle_document or {}
+    local styleName = data.style or 'info'
+    local styleData = Config.Styles[styleName] or Config.Styles.info or {}
     local merged = mergeTable(styleData, data)
     merged.id = id
     merged.coords = toVec3(data.coords)
     merged.style = styleName
+    merged.sourceType = sourceType or data.sourceType or 'local'
     return merged
 end
 
-local function hasPermissions(id, data)
-    local p = data.permissions
-    if not p then return true end
+-- ===== OX_TARGET =====
 
-    local now = GetGameTimer()
-    local cached = permissionCache[id]
-    if cached and cached.expires > now then return cached.ok end
+local function removeOxZone(id)
+    if not oxZones[id] then return end
+    if GetResourceState('ox_target') == 'started' then
+        pcall(function() exports.ox_target:removeZone(oxZones[id]) end)
+    end
+    oxZones[id] = nil
+end
 
-    local okPermission = true
+local function registerOxZone(id, data)
+    if not Config.UseOxTarget or not data.target then return end
+    if GetResourceState('ox_target') ~= 'started' then return end
+    removeOxZone(id)
+    local coords = data.coords
+    local distance = data.targetDistance or data.interactDistance or Config.TargetDistance or 2.0
+    local label = data.title or id
+    local icon = Config.TargetIcon or 'fa-solid fa-location-dot'
+    local zoneId = exports.ox_target:addSphereZone({
+        coords = coords,
+        radius = distance,
+        options = {
+            {
+                name = 'real_marker_' .. id,
+                label = label,
+                icon = icon,
+                distance = distance,
+                canInteract = function() return localAccess(data) end,
+                onSelect = function() TriggerEvent('real_markers:client:interactMarker', id) end
+            }
+        }
+    })
+    oxZones[id] = zoneId
+end
 
-    if p.jobs then
-        okPermission = false
-        local ok, ESX = pcall(function() return exports['es_extended']:getSharedObject() end)
-        if ok and ESX and ESX.GetPlayerData then
-            local pd = ESX.GetPlayerData()
-            if pd and pd.job and p.jobs[pd.job.name] ~= nil then
-                local minGrade = tonumber(p.jobs[pd.job.name]) or 0
-                if (pd.job.grade or 0) >= minGrade then okPermission = true end
-            end
+-- ===== MARKER INTERAKCIÓ =====
+
+local function doMarkerAction(id, data)
+    if not data then return end
+    if data.event then
+        if data.serverEvent then
+            TriggerServerEvent(data.event, id, data.args)
+        else
+            TriggerEvent(data.event, id, data.args)
         end
     end
-
-    if okPermission and p.items and Config.UseOxInventory then
-        for item, count in pairs(p.items) do
-            local ok, amount = pcall(function() return exports.ox_inventory:Search('count', item) end)
-            if not ok or (amount or 0) < (tonumber(count) or 1) then okPermission = false break end
-        end
-    end
-
-    permissionCache[id] = { ok = okPermission, expires = now + (Config.PermissionCacheTime or 3000) }
-    return okPermission
+    if data.cb and type(data.cb) == 'function' then data.cb(id, data) end
 end
 
-local function drawGroundDot(coords, data, distance)
-    if not Config.EnableGroundDot or data.ground == false then return end
-    if distance > (Config.GroundDotMaxDistance or 5.0) then return end
-    local color = data.color or { r=92,g=190,b=230,a=100 }
-    local alpha = math.floor((color.a or 100) * math.max(0.15, 1.0 - (distance / (Config.GroundDotMaxDistance or 5.0))))
-    DrawMarker(1, coords.x, coords.y, coords.z + (Config.GroundDotZOffset or -0.96), 0.0,0.0,0.0, 0.0,0.0,0.0, 0.42,0.42,0.025, color.r or 255, color.g or 255, color.b or 255, alpha, false,false,2,false,nil,nil,false)
-end
-
-
-local function rotationToDirection(rotation)
-    local adjustedRotation = {
-        x = math.rad(rotation.x),
-        y = math.rad(rotation.y),
-        z = math.rad(rotation.z)
-    }
-
-    local direction = {
-        x = -math.sin(adjustedRotation.z) * math.abs(math.cos(adjustedRotation.x)),
-        y =  math.cos(adjustedRotation.z) * math.abs(math.cos(adjustedRotation.x)),
-        z =  math.sin(adjustedRotation.x)
-    }
-
-    return direction
-end
-
-local function clearNuiMarkers()
-    SendNUIMessage({ action = 'clearMarkers' })
-    lastPayload = '[]'
-end
-
-local function buildNuiMarker(marker, distance)
-    local data = marker.data
-    local coords = marker.coords
-    local zOffset = data.zOffset or 1.0
-
-    -- Beragadas elleni vedelem: ha a marker a kamera mogott van, vagy kicsuszott a kepernyorol, nem kuldjuk NUI-ba.
-    local markerPos = vec3(coords.x, coords.y, coords.z + zOffset)
-    local camCoords = GetGameplayCamCoord()
-    local camRot = GetGameplayCamRot(2)
-    local camForward = rotationToDirection(camRot)
-    local toMarker = markerPos - camCoords
-    local dot = (camForward.x * toMarker.x) + (camForward.y * toMarker.y) + (camForward.z * toMarker.z)
-    if dot <= 0.05 then return nil end
-
-    local onScreen, x, y = World3dToScreen2d(markerPos.x, markerPos.y, markerPos.z)
-    if not onScreen then return nil end
-    if x < -0.08 or x > 1.08 or y < -0.08 or y > 1.08 then return nil end
-
-    local drawDistance = data.drawDistance or Config.DefaultDrawDistance
-    local fadeStart = data.fadeStart or (drawDistance * 0.45)
-    local alpha = 1.0
-    if distance > fadeStart then
-        alpha = 1.0 - ((distance - fadeStart) / (drawDistance - fadeStart))
-        if alpha < 0.04 then alpha = 0.04 end
-    end
-
-    local near = distance <= (data.interactDistance or Config.DefaultInteractDistance)
-    local mode = data.mode or 'icon_interact'
-    local scale = (data.scale or 0.82) * math.max(0.74, math.min(1.05, 7.0 / math.max(distance, 6.0)))
-
-    return {
-        id = marker.id,
-        x = x,
-        y = y,
-        alpha = alpha,
-        scale = scale,
-        theme = data.theme or 'sky',
-        mode = mode,
-        icon = data.icon or 'document',
-        title = data.title or 'Interakció',
-        subtitle = data.status or data.subtitle or '',
-        near = near,
-        keyText = data.keyText or 'E',
-        showLabel = mode == 'icon_label' or near,
-        showInteract = near and mode ~= 'icon'
-    }
-end
-
-local function refreshOxTargets()
-    if not Config.UseOxTarget then return end
-    if GetResourceState(Config.OxTargetResource or 'ox_target') ~= 'started' then return end
-    for id, zoneId in pairs(createdTargets) do
-        pcall(function() exports.ox_target:removeZone(zoneId) end)
-        createdTargets[id] = nil
-    end
-    for id, data in pairs(activeMarkers) do
-        if data.target and hasPermissions(id, data) then
-            local zoneId = exports.ox_target:addSphereZone({
-                coords = data.coords,
-                radius = data.interactDistance or Config.DefaultInteractDistance,
-                debug = false,
-                options = {{
-                    label = data.targetLabel or data.title or 'Interakció',
-                    icon = 'fa-solid fa-circle-dot',
-                    onSelect = function()
-                        if data.event then
-                            if data.serverEvent then TriggerServerEvent(data.event, id, data.args) else TriggerEvent(data.event, id, data.args) end
-                        end
-                    end
-                }}
-            })
-            createdTargets[id] = zoneId
-        end
-    end
-end
-
-local function rebuildActiveMarkers()
-    activeMarkers = {}
-    permissionCache = {}
-    for id, marker in pairs(dbMarkers) do
-        local prepared = prepareMarker(id, marker)
-        if prepared and prepared.enabled ~= false then activeMarkers[id] = prepared end
-    end
-    if Config.EnableDemoMarkers then
-        for i, marker in ipairs(Config.DemoMarkers or {}) do
-            local id = marker.id or ('demo_'..i)
-            local prepared = prepareMarker(id, marker)
-            if prepared then activeMarkers[id] = prepared end
-        end
-    end
-    refreshOxTargets()
-end
-
-RegisterNetEvent('real_markers:client:setDbMarkers', function(markers)
-    dbMarkers = {}
-    for _, m in ipairs(markers or {}) do
-        if m.id then dbMarkers[m.id] = m end
-    end
-    rebuildActiveMarkers()
+RegisterNetEvent('real_markers:client:doAction', function(id, data)
+    doMarkerAction(id, data)
 end)
 
-RegisterNetEvent('real_markers:client:editorResponse', function(requestId, ok, markers, styles, message)
-    if requestId ~= editorRequest then return end
-    SendNUIMessage({ action='editorData', ok=ok, markers=markers or {}, styles=styles or Config.SubtleStyles, message=message })
+RegisterNetEvent('real_markers:client:accessDenied', function(_, reason)
+    notify(reason or 'Nincs jogosultságod.')
 end)
 
-CreateThread(function()
-    Wait(1200)
-    TriggerServerEvent('real_markers:server:requestMarkers')
-    rebuildActiveMarkers()
+RegisterNetEvent('real_markers:client:interactMarker', function(id)
+    local data = activeMarkers[id] or databaseMarkers[id]
+    if not data then return end
+    if not localAccess(data) then return notify('Nincs jogosultságod.') end
+    if data.sourceType == 'db' and data.serverValidate ~= false then
+        TriggerServerEvent('real_markers:server:interact', id)
+    else
+        doMarkerAction(id, data)
+    end
 end)
+
+-- ===== EXPORTS =====
 
 exports('RegisterImageMarker', function(id, data)
-    local prepared = prepareMarker(id, data)
+    local prepared = prepareMarker(id, data, 'local')
     if not prepared then return false end
     activeMarkers[id] = prepared
-    refreshOxTargets()
+    registerOxZone(id, prepared)
     return true
 end)
+
 exports('RegisterCustomMarker', function(id, data)
-    local prepared = prepareMarker(id, data)
+    local prepared = prepareMarker(id, data, 'local')
     if not prepared then return false end
     activeMarkers[id] = prepared
-    refreshOxTargets()
+    registerOxZone(id, prepared)
     return true
 end)
+
 exports('RegisterTargetMarker', function(id, data)
-    data = data or {}; data.target = true
-    local prepared = prepareMarker(id, data)
+    data = data or {}
+    data.target = true
+    local prepared = prepareMarker(id, data, 'local')
     if not prepared then return false end
     activeMarkers[id] = prepared
-    refreshOxTargets()
+    registerOxZone(id, prepared)
     return true
 end)
-exports('DrawCustomMarker', function(styleName, coords, options)
-    local id = 'frame_' .. tostring(#frameMarkers + 1)
-    local data = mergeTable(options or {}, { style=styleName, coords=coords })
-    local prepared = prepareMarker(id, data)
-    if prepared then frameMarkers[#frameMarkers+1] = { id=id, coords=prepared.coords, data=prepared } end
-    return true
-end)
+
 exports('UpdateCustomMarker', function(id, data)
-    if not activeMarkers[id] then return false end
+    if not id or not activeMarkers[id] then return false end
     activeMarkers[id] = mergeTable(activeMarkers[id], data or {})
-    activeMarkers[id].coords = toVec3(activeMarkers[id].coords)
-    refreshOxTargets()
+    registerOxZone(id, activeMarkers[id])
     return true
 end)
+
 exports('RemoveCustomMarker', function(id)
+    if not id then return false end
     activeMarkers[id] = nil
-    refreshOxTargets()
+    removeOxZone(id)
     return true
 end)
+
 exports('ClearCustomMarkers', function()
-    activeMarkers = {}; nearbyMarkers = {}; frameMarkers = {}; refreshOxTargets()
+    for id in pairs(activeMarkers) do removeOxZone(id) end
+    activeMarkers = {}
     return true
 end)
-exports('GetMarkerStyles', function() return Config.SubtleStyles end)
 
-CreateThread(function()
-    while true do
-        local pc = GetEntityCoords(PlayerPedId())
-        local list = {}
-        for id, data in pairs(activeMarkers) do
-            if hasPermissions(id, data) then
-                local c = data.coords
-                local dx,dy,dz = pc.x-c.x, pc.y-c.y, pc.z-c.z
-                local distSq = dx*dx+dy*dy+dz*dz
-                local dd = data.drawDistance or Config.DefaultDrawDistance
-                if distSq <= dd*dd then list[#list+1] = { id=id, coords=c, data=data, distSq=distSq } end
-            end
+exports('GetMarkerStyles', function() return Config.Styles end)
+
+-- ===== DATABASE MARKEREK =====
+
+RegisterNetEvent('real_markers:client:setDatabaseMarkers', function(markers)
+    for id in pairs(databaseMarkers) do removeOxZone(id) end
+    databaseMarkers = {}
+    for id, data in pairs(markers or {}) do
+        local prepared = prepareMarker(id, data, 'db')
+        if prepared then
+            databaseMarkers[id] = prepared
+            registerOxZone(id, prepared)
         end
-        table.sort(list, function(a,b) return a.distSq < b.distSq end)
-        nearbyMarkers = {}
-        for i=1, math.min(#list, Config.MaxVisibleMarkers or 5) do nearbyMarkers[i] = list[i] end
-        Wait(Config.CoarseRefreshInterval or 650)
     end
 end)
 
-CreateThread(function()
-    while true do
-        if Config.HideWhenPauseMenu and IsPauseMenuActive() then
-            if lastPayload ~= '[]' then clearNuiMarkers() end
-            Wait(250)
+RegisterNetEvent('real_markers:client:upsertDatabaseMarker', function(id, data)
+    local prepared = prepareMarker(id, data, 'db')
+    if not prepared then return end
+    databaseMarkers[id] = prepared
+    registerOxZone(id, prepared)
+end)
+
+RegisterNetEvent('real_markers:client:removeDatabaseMarker', function(id)
+    databaseMarkers[id] = nil
+    removeOxZone(id)
+end)
+
+-- ===== DEMO MARKEREK =====
+
+local function applyDemoMarkers(state)
+    demoEnabled = state == true
+    for i, marker in ipairs(Config.DemoMarkers or {}) do
+        local id = 'demo_' .. i
+        if demoEnabled then
+            local prepared = prepareMarker(id, marker, 'local')
+            if prepared then activeMarkers[id] = prepared registerOxZone(id, prepared) end
         else
-            local has = #nearbyMarkers > 0 or #frameMarkers > 0
-            if not has then
-                if lastPayload ~= '[]' then clearNuiMarkers() end
-                Wait(300)
-            else
-                local pc = GetEntityCoords(PlayerPedId())
-                local output = {}
-                local nearest, nearestDist = nil, 9999.0
-                local combined = {}
-                for i=1,#nearbyMarkers do combined[#combined+1] = nearbyMarkers[i] end
-                for i=1,#frameMarkers do combined[#combined+1] = frameMarkers[i] end
-                frameMarkers = {}
+            activeMarkers[id] = nil
+            removeOxZone(id)
+        end
+    end
+end
 
-                for i=1,#combined do
-                    local m = combined[i]
-                    local c = m.coords
-                    local dist = #(pc - c)
-                    if dist <= (m.data.drawDistance or Config.DefaultDrawDistance) then
-                        drawGroundDot(c, m.data, dist)
-                        local nui = buildNuiMarker(m, dist)
-                        if nui then output[#output+1] = nui end
-                        if not Config.UseOxTarget and dist <= (m.data.interactDistance or Config.DefaultInteractDistance) and dist < nearestDist then
-                            nearest, nearestDist = m, dist
-                        end
+CreateThread(function()
+    if Config.EnableDemoMarkers then applyDemoMarkers(true) end
+end)
+
+-- ===== FŐ RENDER LOOP — natív 3D DrawMarker =====
+
+CreateThread(function()
+    local M = Config.Marker
+    local mType = M.Type or 2
+    local mSize = M.Size or { x = 0.55, y = 0.55, z = 0.55 }
+    local mZOff = M.ZOffset or 1.35
+    local bob = M.Bob ~= false
+    local bobSpeed = M.BobSpeed or 1.8
+    local bobHeight = M.BobHeight or 0.12
+    local rotate = M.Rotate ~= false
+    local rotateSpeed = M.RotateSpeed or 1.0
+    local faceCamera = M.FaceCamera == true
+    local groundRing = M.GroundRing ~= false
+    local groundType = M.GroundType or 1
+    local groundSize = M.GroundSize or 1.2
+    local groundZOff = M.GroundZOffset or -0.95
+    local groundAlpha = M.GroundAlpha or 100
+    local nearPulse = M.NearPulse ~= false
+    local nearPulseMin = M.NearPulseMin or 0.92
+    local nearPulseMax = M.NearPulseMax or 1.08
+    local nearPulseSpeed = M.NearPulseSpeed or 2.5
+    local drawDist = Config.DefaultDrawDistance or 30.0
+    local interactDist = Config.DefaultInteractDistance or 2.0
+    local interactKey = Config.DefaultKey or 38
+
+    local rotAngle = 0.0
+
+    while true do
+        local playerCoords = GetEntityCoords(PlayerPedId())
+        local closestMarker = nil
+        local closestDist = 999999.0
+
+        local allMarkers = {}
+        for id, data in pairs(activeMarkers) do allMarkers[id] = data end
+        for id, data in pairs(databaseMarkers) do allMarkers[id] = data end
+
+        local hasAny = false
+        for id, data in pairs(allMarkers) do
+            if localAccess(data) then
+                local coords = data.coords
+                local dx = playerCoords.x - coords.x
+                local dy = playerCoords.y - coords.y
+                local dz = playerCoords.z - coords.z
+                local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+                local dd = data.drawDistance or drawDist
+
+                if dist <= dd then
+                    hasAny = true
+                    local col = data.color or { r=100, g=180, b=255, a=160 }
+                    local r, g, b, a = col.r or 100, col.g or 180, col.b or 255, col.a or 160
+
+                    local zOff = data.zOffset or mZOff
+                    if bob then
+                        local t = GetGameTimer() / 1000.0 * bobSpeed
+                        zOff = zOff + math.sin(t) * bobHeight
+                    end
+
+                    local rotX, rotY, rotZ = 0.0, 0.0, 0.0
+                    if faceCamera then
+                        local camRot = GetGameplayCamRot(2)
+                        rotZ = -camRot.z
+                    elseif rotate then
+                        rotAngle = rotAngle + rotateSpeed
+                        if rotAngle > 360.0 then rotAngle = rotAngle - 360.0 end
+                        rotZ = rotAngle
+                    end
+
+                    local id2 = data.interactDistance or interactDist
+                    local isNear = dist <= id2
+                    local sx, sy, sz = mSize.x, mSize.y, mSize.z
+                    if data.scale then
+                        sx = sx * data.scale
+                        sy = sy * data.scale
+                        sz = sz * data.scale
+                    end
+                    if isNear and nearPulse then
+                        local t = GetGameTimer() / 1000.0 * nearPulseSpeed
+                        local pulse = nearPulseMin + (nearPulseMax - nearPulseMin) * ((math.sin(t) + 1.0) / 2.0)
+                        sx = sx * pulse
+                        sy = sy * pulse
+                        sz = sz * pulse
+                    end
+
+                    local markerType = data.markerType or mType
+                    DrawMarker(
+                        markerType,
+                        coords.x, coords.y, coords.z + zOff,
+                        0.0, 0.0, 0.0,
+                        rotX, rotY, rotZ,
+                        sx, sy, sz,
+                        r, g, b, a,
+                        bob, faceCamera, 2, rotate, nil, nil, false
+                    )
+
+                    if groundRing and dist <= dd * 0.6 then
+                        local gs = data.groundSize or groundSize
+                        local ga = data.groundAlpha or groundAlpha
+                        DrawMarker(
+                            groundType,
+                            coords.x, coords.y, coords.z + groundZOff,
+                            0.0, 0.0, 0.0,
+                            0.0, 0.0, 0.0,
+                            gs, gs, 0.06,
+                            r, g, b, ga,
+                            false, false, 2, false, nil, nil, false
+                        )
+                    end
+
+                    if isNear and dist < closestDist and not (Config.UseOxTarget and data.target) then
+                        closestDist = dist
+                        closestMarker = data
                     end
                 end
-
-                if nearest then
-                    local data = nearest.data
-                    if data.helpText then showHelpText(data.helpText) end
-                    if IsControlJustReleased(0, data.key or Config.DefaultKey) then
-                        if data.event then
-                            if data.serverEvent then TriggerServerEvent(data.event, nearest.id, data.args) else TriggerEvent(data.event, nearest.id, data.args) end
-                        end
-                        if type(data.cb) == 'function' then data.cb(nearest.id, data) end
-                    end
-                end
-
-                -- Smooth kamera: a NUI csak meglévő DOM node-ok transformját frissíti, nem építi újra.
-                local payload = json.encode(output)
-                if payload ~= lastPayload or (Config.NuiRefreshInterval or 0) == 0 then
-                    SendNUIMessage({action='setMarkers', markers=output})
-                    lastPayload=payload
-                end
-                Wait(Config.NuiRefreshInterval or 0)
             end
+        end
+
+        if closestMarker then
+            local helpTxt = closestMarker.helpText or '~INPUT_CONTEXT~ Interakció'
+            showHelpText(helpTxt)
+            if IsControlJustReleased(0, closestMarker.key or interactKey) then
+                TriggerEvent('real_markers:client:interactMarker', closestMarker.id)
+            end
+        end
+
+        if hasAny then
+            Wait(0)
+        else
+            Wait(500)
         end
     end
 end)
 
-local function openEditor()
-    if not Config.EnableEditorNui then return end
-    SetNuiFocus(true, true)
-    editorRequest = editorRequest + 1
-    SendNUIMessage({ action='openEditor', styles=Config.SubtleStyles })
-    TriggerServerEvent('real_markers:server:editorRequest', editorRequest)
-end
+-- ===== ADMIN PARANCSOK =====
 
-RegisterNUICallback('closeEditor', function(_, cb)
-    SetNuiFocus(false, false)
-    cb({ok=true})
-end)
-RegisterNUICallback('getPlayerCoords', function(_, cb)
-    local c = GetEntityCoords(PlayerPedId())
-    cb({ ok=true, x=tonumber(string.format('%.3f', c.x)), y=tonumber(string.format('%.3f', c.y)), z=tonumber(string.format('%.3f', c.z)) })
-end)
-RegisterNUICallback('previewMarker', function(data, cb)
-    if not data.coords then data.coords = GetEntityCoords(PlayerPedId()) end
-    data.id = Config.EditorPreviewId
-    exports['real_markers']:RegisterImageMarker(Config.EditorPreviewId, data)
-    SetTimeout(Config.EditorPreviewDuration or 30000, function() activeMarkers[Config.EditorPreviewId] = nil end)
-    notify('Preview marker lerakva 30 másodpercre.', 'success')
-    cb({ok=true})
-end)
-RegisterNUICallback('saveMarker', function(data, cb)
-    TriggerServerEvent('real_markers:server:saveMarker', data)
-    SetTimeout(500, function()
-        editorRequest = editorRequest + 1
-        TriggerServerEvent('real_markers:server:editorRequest', editorRequest)
-    end)
-    cb({ok=true})
-end)
-RegisterNUICallback('deleteMarker', function(data, cb)
-    if data and data.id then TriggerServerEvent('real_markers:server:deleteMarker', data.id) end
-    SetTimeout(500, function()
-        editorRequest = editorRequest + 1
-        TriggerServerEvent('real_markers:server:editorRequest', editorRequest)
-    end)
-    cb({ok=true})
-end)
-
-if Config.EnableCommands then
-    RegisterCommand(Config.EditorCommand or 'rmeditor', openEditor, false)
-    RegisterCommand('rmpreview', function(_, args)
-        local style = args[1] or 'subtle_wrench'
-        local c = GetEntityCoords(PlayerPedId())
-        exports['real_markers']:RegisterImageMarker(Config.EditorPreviewId, { style=style, coords=c, title='Preview', subtitle=style })
-        notify('Preview marker lerakva.', 'success')
+if Config.EnableAdminCommands then
+    RegisterCommand('rmcreate', function(_, args)
+        local id, style = args[1], args[2]
+        if not id or not style then return notify('Használat: /rmcreate id style') end
+        local coords = GetEntityCoords(PlayerPedId())
+        TriggerServerEvent('real_markers:server:adminCreate', {
+            id = id,
+            style = style,
+            coords = { x = coords.x, y = coords.y, z = coords.z },
+            helpText = '~INPUT_CONTEXT~ Interakció'
+        })
     end, false)
-    RegisterCommand('rmreload', function() TriggerServerEvent('real_markers:server:reloadMarkers') end, false)
-    RegisterCommand('markerclear', function() activeMarkers = {}; nearbyMarkers = {}; clearNuiMarkers() end, false)
+
+    RegisterCommand('rmmove', function(_, args)
+        local id = args[1]
+        if not id then return notify('Használat: /rmmove id') end
+        local coords = GetEntityCoords(PlayerPedId())
+        TriggerServerEvent('real_markers:server:adminUpdate', id, { coords = { x = coords.x, y = coords.y, z = coords.z } })
+    end, false)
+
+    RegisterCommand('rmdelete', function(_, args)
+        local id = args[1]
+        if not id then return notify('Használat: /rmdelete id') end
+        TriggerServerEvent('real_markers:server:adminDelete', id)
+    end, false)
+
+    RegisterCommand('rmstatus', function(_, args)
+        local id, status = args[1], args[2]
+        if not id or not status then return notify('Használat: /rmstatus id STATUS') end
+        TriggerServerEvent('real_markers:server:adminUpdate', id, { status = status })
+    end, false)
 end
 
-RegisterNetEvent('real_markers:demo:use', function(id)
-    print('[real_markers] subtle demo marker: ' .. tostring(id))
-end)
+if Config.EnableDemoCommand then
+    RegisterCommand('markerdemo', function()
+        applyDemoMarkers(not demoEnabled)
+        notify(('Demo markerek: %s'):format(demoEnabled and 'bekapcsolva' or 'kikapcsolva'))
+    end, false)
+end
 
+if Config.EnableClearCommand then
+    RegisterCommand('markerclear', function()
+        for id in pairs(activeMarkers) do removeOxZone(id) end
+        activeMarkers = {}
+        notify('Lokális markerek törölve.')
+    end, false)
+end
 
-AddEventHandler('onClientResourceStop', function(resourceName)
-    if resourceName ~= GetCurrentResourceName() then return end
-    clearNuiMarkers()
-end)
+-- Demo eventek
+local demoEvents = { 'garage', 'mechanic', 'document', 'shop', 'police', 'warning', 'hospital', 'jobcenter', 'bank', 'blackmarket', 'event', 'real_registry', 'real_inspection', 'real_dealership', 'real_faction_hq', 'real_company_dashboard', 'real_illegal_market', 'real_mining', 'real_fishing', 'real_vip', 'real_cityhall' }
+for _, name in ipairs(demoEvents) do
+    RegisterNetEvent('real_markers:demo:' .. name, function()
+        print(('[real_markers] Demo marker hasznalva: %s'):format(name))
+    end)
+end

@@ -1,0 +1,27 @@
+
+CREATE TABLE IF NOT EXISTS `real_markers` (
+  `id` varchar(80) NOT NULL,
+  `style` varchar(80) NOT NULL DEFAULT 'subtle_document',
+  `x` double NOT NULL DEFAULT 0,
+  `y` double NOT NULL DEFAULT 0,
+  `z` double NOT NULL DEFAULT 0,
+  `title` varchar(120) DEFAULT NULL,
+  `subtitle` varchar(180) DEFAULT NULL,
+  `help_text` varchar(180) DEFAULT NULL,
+  `event` varchar(120) DEFAULT NULL,
+  `server_event` tinyint(1) NOT NULL DEFAULT 0,
+  `target` tinyint(1) NOT NULL DEFAULT 0,
+  `target_label` varchar(120) DEFAULT NULL,
+  `draw_distance` double DEFAULT NULL,
+  `interact_distance` double DEFAULT NULL,
+  `permissions` longtext DEFAULT NULL,
+  `status` varchar(80) DEFAULT NULL,
+  `theme` varchar(40) DEFAULT NULL,
+  `icon` varchar(80) DEFAULT NULL,
+  `mode` varchar(40) DEFAULT NULL,
+  `enabled` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `enabled` (`enabled`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -339,6 +339,9 @@ CreateThread(function()
                     local col = data.color or { r=100, g=180, b=255, a=160 }
                     local r, g, b, a = col.r or 100, col.g or 180, col.b or 255, col.a or 160
 
+                    local id2 = data.interactDistance or interactDist
+                    local isNear = dist <= id2
+
                     -- Ha useImage=true, nem rajzolunk natív DrawMarker-t (a NUI kép lesz a marker)
                     if not data.useImage then
                         local zOff = data.zOffset or mZOff
@@ -357,8 +360,6 @@ CreateThread(function()
                             rotZ = rotAngle
                         end
 
-                        local id2 = data.interactDistance or interactDist
-                        local isNear = dist <= id2
                         local sx, sy, sz = mSize.x, mSize.y, mSize.z
                         if data.scale then
                             sx = sx * data.scale
@@ -482,6 +483,7 @@ CreateThread(function()
                                 end
                             end
 
+                            local labelDist = data.labelDistance or 3.0
                             badges[#badges + 1] = {
                                 id = data.id,
                                 x = sx,
@@ -490,7 +492,7 @@ CreateThread(function()
                                 title = data.title or '',
                                 keyText = 'E',
                                 near = dist <= (data.interactDistance or interactDist),
-                                showLabel = true,
+                                showLabel = dist <= labelDist,
                                 showInteract = dist <= (data.interactDistance or interactDist),
                                 theme = data.theme or 'sky',
                                 icon = data.icon or 'wrench',

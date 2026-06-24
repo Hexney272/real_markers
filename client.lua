@@ -339,79 +339,61 @@ CreateThread(function()
                     local col = data.color or { r=100, g=180, b=255, a=160 }
                     local r, g, b, a = col.r or 100, col.g or 180, col.b or 255, col.a or 160
 
-                    -- Ha useImage=true, nem rajzolunk natív DrawMarker-t (a NUI kép lesz a marker)
-                    if not data.useImage then
-                        local zOff = data.zOffset or mZOff
-                        if bob then
-                            local t = GetGameTimer() / 1000.0 * bobSpeed
-                            zOff = zOff + math.sin(t) * bobHeight
-                        end
+                    local zOff = data.zOffset or mZOff
+                    if bob then
+                        local t = GetGameTimer() / 1000.0 * bobSpeed
+                        zOff = zOff + math.sin(t) * bobHeight
+                    end
 
-                        local rotX, rotY, rotZ = 0.0, 0.0, 0.0
-                        if faceCamera then
-                            local camRot = GetGameplayCamRot(2)
-                            rotZ = -camRot.z
-                        elseif rotate then
-                            rotAngle = rotAngle + rotateSpeed
-                            if rotAngle > 360.0 then rotAngle = rotAngle - 360.0 end
-                            rotZ = rotAngle
-                        end
+                    local rotX, rotY, rotZ = 0.0, 0.0, 0.0
+                    if faceCamera then
+                        local camRot = GetGameplayCamRot(2)
+                        rotZ = -camRot.z
+                    elseif rotate then
+                        rotAngle = rotAngle + rotateSpeed
+                        if rotAngle > 360.0 then rotAngle = rotAngle - 360.0 end
+                        rotZ = rotAngle
+                    end
 
-                        local id2 = data.interactDistance or interactDist
-                        local isNear = dist <= id2
-                        local sx, sy, sz = mSize.x, mSize.y, mSize.z
-                        if data.scale then
-                            sx = sx * data.scale
-                            sy = sy * data.scale
-                            sz = sz * data.scale
-                        end
-                        if isNear and nearPulse then
-                            local t = GetGameTimer() / 1000.0 * nearPulseSpeed
-                            local pulse = nearPulseMin + (nearPulseMax - nearPulseMin) * ((math.sin(t) + 1.0) / 2.0)
-                            sx = sx * pulse
-                            sy = sy * pulse
-                            sz = sz * pulse
-                        end
+                    local id2 = data.interactDistance or interactDist
+                    local isNear = dist <= id2
+                    local sx, sy, sz = mSize.x, mSize.y, mSize.z
+                    if data.scale then
+                        sx = sx * data.scale
+                        sy = sy * data.scale
+                        sz = sz * data.scale
+                    end
+                    if isNear and nearPulse then
+                        local t = GetGameTimer() / 1000.0 * nearPulseSpeed
+                        local pulse = nearPulseMin + (nearPulseMax - nearPulseMin) * ((math.sin(t) + 1.0) / 2.0)
+                        sx = sx * pulse
+                        sy = sy * pulse
+                        sz = sz * pulse
+                    end
 
-                        local markerType = data.markerType or mType
+                    local markerType = data.markerType or mType
+                    DrawMarker(
+                        markerType,
+                        coords.x, coords.y, coords.z + zOff,
+                        0.0, 0.0, 0.0,
+                        rotX, rotY, rotZ,
+                        sx, sy, sz,
+                        r, g, b, a,
+                        bob, faceCamera, 2, rotate, nil, nil, false
+                    )
+
+                    if groundRing and dist <= dd * 0.6 then
+                        local gs = data.groundSize or groundSize
+                        local ga = data.groundAlpha or groundAlpha
                         DrawMarker(
-                            markerType,
-                            coords.x, coords.y, coords.z + zOff,
+                            groundType,
+                            coords.x, coords.y, coords.z + groundZOff,
                             0.0, 0.0, 0.0,
-                            rotX, rotY, rotZ,
-                            sx, sy, sz,
-                            r, g, b, a,
-                            bob, faceCamera, 2, rotate, nil, nil, false
+                            0.0, 0.0, 0.0,
+                            gs, gs, 0.06,
+                            r, g, b, ga,
+                            false, false, 2, false, nil, nil, false
                         )
-
-                        if groundRing and dist <= dd * 0.6 then
-                            local gs = data.groundSize or groundSize
-                            local ga = data.groundAlpha or groundAlpha
-                            DrawMarker(
-                                groundType,
-                                coords.x, coords.y, coords.z + groundZOff,
-                                0.0, 0.0, 0.0,
-                                0.0, 0.0, 0.0,
-                                gs, gs, 0.06,
-                                r, g, b, ga,
-                                false, false, 2, false, nil, nil, false
-                            )
-                        end
-                    else
-                        -- useImage mode: csak ground ring (a kép a NUI badge-ként jelenik meg nagyban)
-                        if groundRing and dist <= dd * 0.6 then
-                            local gs = data.groundSize or groundSize
-                            local ga = data.groundAlpha or groundAlpha
-                            DrawMarker(
-                                groundType,
-                                coords.x, coords.y, coords.z + groundZOff,
-                                0.0, 0.0, 0.0,
-                                0.0, 0.0, 0.0,
-                                gs, gs, 0.06,
-                                r, g, b, ga,
-                                false, false, 2, false, nil, nil, false
-                            )
-                        end
                     end
 
                     if isNear and dist < closestDist and not (Config.UseOxTarget and data.target) then
@@ -441,68 +423,28 @@ CreateThread(function()
                     local dy = playerCoords.y - coords.y
                     local dz = playerCoords.z - coords.z
                     local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
-
-                    -- useImage markerek távolabbról is látszanak (drawDistance-ig)
-                    local thisBadgeDist = badgeDist
-                    if data.useImage then
-                        thisBadgeDist = data.drawDistance or drawDist
-                    end
-
-                    if dist <= thisBadgeDist then
+                    if dist <= badgeDist then
                         local zOff = (data.zOffset or mZOff) + 0.45
-                        if data.useImage then
-                            zOff = (data.zOffset or mZOff)
-                            -- Bob animáció a kép-markernek
-                            if bob then
-                                local t = GetGameTimer() / 1000.0 * bobSpeed
-                                zOff = zOff + math.sin(t) * bobHeight
-                            end
-                        end
                         local onScreen, sx, sy = World3dToScreen2d(coords.x, coords.y, coords.z + zOff)
                         if onScreen then
                             local alpha = 1.0
-                            if not data.useImage then
-                                if dist > thisBadgeDist * 0.6 then
-                                    alpha = 1.0 - ((dist - thisBadgeDist * 0.6) / (thisBadgeDist * 0.4))
-                                end
-                            else
-                                -- useImage: fade out a drawDistance végén
-                                local fadeStart = thisBadgeDist * 0.75
-                                if dist > fadeStart then
-                                    alpha = 1.0 - ((dist - fadeStart) / (thisBadgeDist - fadeStart))
-                                end
+                            if dist > badgeDist * 0.6 then
+                                alpha = 1.0 - ((dist - badgeDist * 0.6) / (badgeDist * 0.4))
                             end
-
-                            local scale = 1
-                            if data.useImage then
-                                -- Nagyobb méret kép-markereknél, távolság alapján skálázva
-                                local baseScale = data.imageScale or 2.5
-                                local distFactor = 1.0 - (dist / thisBadgeDist) * 0.4
-                                scale = baseScale * distFactor
-                                -- Pulzálás közelben
-                                if dist <= (data.interactDistance or interactDist) and nearPulse then
-                                    local t = GetGameTimer() / 1000.0 * nearPulseSpeed
-                                    local pulse = nearPulseMin + (nearPulseMax - nearPulseMin) * ((math.sin(t) + 1.0) / 2.0)
-                                    scale = scale * pulse
-                                end
-                            end
-
                             badges[#badges + 1] = {
                                 id = data.id,
                                 x = sx,
                                 y = sy,
                                 alpha = alpha,
-                                title = data.useImage and '' or (data.title or ''),
+                                title = data.title or '',
                                 keyText = 'E',
                                 near = dist <= (data.interactDistance or interactDist),
-                                showLabel = not data.useImage,
+                                showLabel = true,
                                 showInteract = dist <= (data.interactDistance or interactDist),
                                 theme = data.theme or 'sky',
                                 icon = data.icon or 'wrench',
                                 subtitle = '',
-                                scale = scale,
-                                useImage = data.useImage or false,
-                                imageIcon = data.icon or 'wrench',
+                                scale = 1
                             }
                         end
                     end

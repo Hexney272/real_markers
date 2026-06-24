@@ -1,0 +1,22 @@
+REAL_MARKERS – NO BACKGROUND / CACHE FIX V2
+============================================
+
+A képen látható fehér négyzet oka:
+- a korábbi PNG fájloknál a háttér nem teljesen tűnt el, VAGY
+- a FiveM/NUI cache még a régi, hátteres képet töltötte be ugyanazzal a fájlnévvel.
+
+Ebben a verzióban mindkettő javítva van:
+- új, valódi átlátszó PNG-k készültek
+- új fájlneveket kaptak: real_marker_*_v2.png
+- app.js már ezekre mutat, így nem tudja a régi cache-elt képet használni
+- CSS oldalon az img háttér is transparent!important
+
+Telepítés:
+1. Teljesen töröld a régi real_markers mappát a resources-ból.
+2. Másold be ezt az új real_markers mappát.
+3. Szerver oldalon: restart real_markers
+4. Kliens oldalon érdemes F8 -> quit, majd újra belépni.
+5. Ha továbbra is a régi fehér négyzetet látod, töröld a FiveM cache-t is.
+
+Fontos:
+Ne csak felülírd a régi fájlokat, mert a NUI cache miatt néha a régi PNG marad betöltve.

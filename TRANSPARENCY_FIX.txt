@@ -1,0 +1,26 @@
+FRISSÍTÉS – ÁTLÁTSZÓ HÁTTÉR JAVÍTVA
+==================================
+
+A korábbi PNG-kbe bele volt sütve a sakktáblás háttér, ezért FiveM-ben háttérrel jelentek meg.
+Ebben a verzióban a marker ikonok valódi transzparens PNG-k lettek.
+
+Javítva:
+- a checkerboard háttér eltávolítva
+- alfa/transzparencia újragenerálva
+- a logós neon marker ikonok újra beépítve a scriptbe
+
+Érintett ikonok:
+- real_holo_clothing.png
+- real_holo_car.png
+- real_holo_wrench.png
+- real_holo_basket.png
+- real_holo_bank.png
+- real_holo_shield.png
+- real_holo_hospital.png
+- real_holo_fuel.png
+- real_holo_document.png
+- real_holo_star.png
+
+Telepítés:
+1. Cseréld le a korábbi real_markers resource-ot erre.
+2. restart real_markers

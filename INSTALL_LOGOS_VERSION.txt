@@ -1,0 +1,35 @@
+RealRPG neon-zöld marker pack — LOGÓS verzió
+============================================
+
+Ebben a csomagban a neon-zöld markerek már a RealRPG szerverlogóval vegyítve vannak.
+A marker PNG-k be lettek építve a scriptbe, ezért ez egy drop-in csereverzió.
+
+Lecserélt logós ikonok:
+- real_holo_bank.png
+- real_holo_shield.png
+- real_holo_hospital.png
+- real_holo_fuel.png
+- real_holo_basket.png
+- real_holo_wrench.png
+- real_holo_car.png
+- real_holo_clothing.png
+
+A scriptben ezek automatikusan működnek az alábbi stílusoknál / ikonoknál:
+- bank / atm
+- police / faction / shield
+- hospital
+- fuel
+- shop / basket
+- mechanic / gear / wrench
+- garage / car / truck / taxi
+- clothing
+
+Telepítés:
+1. Cseréld le a régi real_markers resource-ot erre a verzióra.
+2. ensure real_markers
+3. restart real_markers
+
+Megjegyzés:
+- A dokumentum és csillag alapú ikonok az előző csomagból maradtak meg.
+- Ha szeretnéd, a következő körben a house, key, illegal, cityhall, VIP, mining stb. ikonokat is
+  meg tudjuk csinálni ugyanezzel a logós stílussal.

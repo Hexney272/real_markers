@@ -1,0 +1,29 @@
+RealRPG neon-zöld marker pack (beépített verzió)
+------------------------------------------------
+Ez a verzió a felhasználó által jóváhagyott neon-zöld, az első mintaképhez sokkal közelebb álló marker ikonokat tartalmazza.
+
+Beépített PNG ikonok:
+- ruha / clothing
+- autó / car
+- szerszám / mechanic
+- kosár / shop
+- bankkártya / bank / atm
+- pajzs / police / faction
+- kereszt / hospital
+- üzemanyag / fuel
+- dokumentum / registry / office
+- csillag / vip / cityhall
+
+Módosított fájlok:
+- config.lua
+- web/app.js
+- web/style.css
+- web/icons/real_holo_*.png
+
+Telepítés:
+1. Cseréld le a régi real_markers mappát erre.
+2. ensure real_markers
+3. restart real_markers
+
+Ha szeretnéd, a következő körben további ugyanilyen stílusú ikonokat is lehet hozzáadni
+(pl. house, illegal, taxi, fishing, mining, key, warehouse, stb.).

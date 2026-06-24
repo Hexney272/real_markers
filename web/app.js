@@ -124,7 +124,7 @@ function updateMarkers(markers){
     const left = `${x}vw`;
     const top = `${y}vh`;
     const opacity = String(m.alpha ?? 1);
-    const transform = `translate3d(-50%,-100%,0) scale(${m.scale || 1})`;
+    const transform = `translate3d(-50%,-50%,0) scale(${m.scale || 1})`;
 
     if(last.left !== left){ node.style.left = left; last.left = left; }
     if(last.top !== top){ node.style.top = top; last.top = top; }

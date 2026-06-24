@@ -7,6 +7,7 @@ local ESX = nil
 local playerJob = nil
 local playerGrade = 0
 local playerGroup = nil
+local markersSuppressed = false
 
 local function getESX()
     if ESX then return ESX end
@@ -241,6 +242,13 @@ end)
 
 exports('GetMarkerStyles', function() return Config.Styles end)
 
+exports('SuppressMarkers', function(state)
+    markersSuppressed = state == true
+    if markersSuppressed then
+        SendNUIMessage({ action = 'setMarkers', markers = {} })
+    end
+end)
+
 -- ===== DATABASE MARKEREK =====
 
 RegisterNetEvent('real_markers:client:setDatabaseMarkers', function(markers)
@@ -316,6 +324,12 @@ CreateThread(function()
     local rotAngle = 0.0
 
     while true do
+        -- Ha a markerek el vannak nyomva (pl. menü nyitva), ne rendereljünk
+        if markersSuppressed then
+            Wait(200)
+            goto continueLoop
+        end
+
         local playerCoords = GetEntityCoords(PlayerPedId())
         local closestMarker = nil
         local closestDist = 999999.0
@@ -512,6 +526,7 @@ CreateThread(function()
         else
             Wait(500)
         end
+        ::continueLoop::
     end
 end)
 
